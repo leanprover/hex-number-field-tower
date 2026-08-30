@@ -1,0 +1,25 @@
+name = "hex-number-field-tower"
+defaultTargets = ["HexNumberFieldTower"]
+
+leanOptions = [
+  { name = "doc.verso", value = true },
+  { name = "doc.verso.suggestions", value = false },
+]
+
+[[require]]
+name = "HexNumberField"
+git = "https://github.com/leanprover/hex-number-field.git"
+rev = "2c5628b9858b5c1b5c29bf168713575172283e8f"
+
+[[require]]
+name = "HexResultant"
+git = "https://github.com/leanprover/hex-resultant.git"
+rev = "6e7f884c7ee352c7682baad90d0d0b312cdadd21"
+
+[[require]]
+name = "HexBerlekampZassenhaus"
+git = "https://github.com/leanprover/hex-berlekamp-zassenhaus.git"
+rev = "d722c2174a7af8bf3a21eab2e671b82e76b03183"
+
+[[lean_lib]]
+name = "HexNumberFieldTower"
