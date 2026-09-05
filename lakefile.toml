@@ -23,3 +23,7 @@ rev = "d722c2174a7af8bf3a21eab2e671b82e76b03183"
 
 [[lean_lib]]
 name = "HexNumberFieldTower"
+
+[[lean_lib]]
+name = "HexNumberFieldTowerTests"
+globs = ["HexNumberFieldTower.Embed"]
