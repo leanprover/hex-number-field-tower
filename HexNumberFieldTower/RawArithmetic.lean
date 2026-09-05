@@ -19,6 +19,7 @@ arithmetic is a thin dependent wrapper defined later.
 -/
 namespace Hex.NumberTower.Arithmetic
 
+/-- A fold whose steps preserve array size leaves the size unchanged. -/
 private theorem foldl_array_size {α β : Type} (indices : List β)
     (step : Array α → β → Array α) (initial : Array α)
     (hstep : ∀ work index, (step work index).size = work.size) :
@@ -101,7 +102,7 @@ theorem block_one (count width index : Nat) (hindex : index < count) :
       rcases i with _ | i
       · simp [block, fixedCoeffs, Array.getD, Nat.ne_of_gt htotal]
       · simp [block, fixedCoeffs, Array.getD]
-  · simp only [if_neg hindex0]
+  · simp only [ite_eq_right hindex0]
     apply Array.ext
     · simp [block, fixedCoeffs]
     · intro i hi₁ hi₂
@@ -193,6 +194,8 @@ def convolveRow (degree width i : Nat)
       work.set! k (addCoords width (work.getD k zeroBlock) product))
     work
 
+/-- One convolution row edits the work array in place, preserving its
+size. -/
 @[simp]
 theorem convolveRow_size (degree width i : Nat)
     (multiply : Array Rat → Array Rat → Array Rat)
@@ -244,6 +247,8 @@ def reduceCoeffs (degree width k : Nat) (defining : Array (Array Rat))
         (subCoords width (work.getD target zeroBlock) correction))
     work
 
+/-- One coefficient-reduction step edits the work array in place, preserving
+its size. -/
 @[simp]
 theorem reduceCoeffs_size (degree width k : Nat)
     (defining : Array (Array Rat))
@@ -330,11 +335,17 @@ theorem mulCoords_size (levels : List Level) (a b : Array Rat) :
 recurses through runtime level data rather than a dependent `NumberTower`.
 The `raw` helper normalizes to the represented mixed-radix dimension. -/
 structure RawElem (levels : List Level) where
+  /-- The flattened mixed-radix rational coordinates. -/
   data : Array Rat
 
+/-- Wrap coordinate data as a `RawElem`, zero-padding or truncating to the
+represented mixed-radix dimension. -/
 @[expose]
 def raw (levels : List Level) (data : Array Rat) : RawElem levels :=
   .mk (fixedCoeffs (levelsDim levels) data)
+
+/-! `RawElem` operations delegate to the runtime-indexed coordinate
+functions above; `Inv` and `Div` follow after `invCoords`. -/
 
 instance (levels : List Level) : DecidableEq (RawElem levels) :=
   fun a b =>
@@ -364,13 +375,18 @@ instance (levels : List Level) : Mul (RawElem levels) :=
 general-purpose `RawElem`, this type carries the fixed-width invariant needed
 by the semantic field bridge for polynomial xgcd. -/
 structure Coeff (levels : List Level) where
+  /-- The flattened mixed-radix rational coordinates. -/
   data : Array Rat
+  /-- The coordinate array has exactly the represented dimension. -/
   size_eq : data.size = levelsDim levels
 
 /-- Normalize arbitrary data into a canonical lower-tower coefficient. -/
 @[expose]
 def Coeff.ofData (levels : List Level) (data : Array Rat) : Coeff levels :=
   ⟨fixedCoeffs (levelsDim levels) data, by simp [fixedCoeffs]⟩
+
+/-! `Coeff` operations delegate to the same coordinate functions, carrying
+the fixed-width invariant through each result. -/
 
 instance (levels : List Level) : DecidableEq (Coeff levels) :=
   fun a b =>
@@ -417,7 +433,11 @@ def Coeff.relation (level : Level) (lower : List Level) :
 
 /-- Recursive inverse coordinates. The zero convention is inherited at every
 level; defensive nonconstant/zero gcd branches are unreachable for certified
-level lists. -/
+level lists. The extended gcd makes every remainder monic before dividing by
+it, so each lower-field inversion acts on a normalized operand and the
+quotient coefficients stay bounded in height; the unnormalized
+`DensePoly.xgcdLeft` chain amplified the heights of every later
+lower-field inversion. -/
 @[expose]
 def invCoords : (levels : List Level) → Array Rat → Array Rat
   | [], a => #[if a.getD 0 0 = 0 then 0 else (a.getD 0 0)⁻¹]
@@ -432,7 +452,7 @@ def invCoords : (levels : List Level) → Array Rat → Array Rat
         letI : Div (Coeff lower) := ⟨fun x y => x * y⁻¹⟩
         let value := Coeff.value level lower a
         let defining := Coeff.relation level lower
-        let result := DensePoly.xgcdLeft value defining
+        let result := DensePoly.xgcdLeftMonic value defining
         if result.gcd.size = 1 then
           let c := result.gcd.leadingCoeff
           if c = 0 then

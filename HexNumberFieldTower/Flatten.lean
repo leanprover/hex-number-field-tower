@@ -27,8 +27,11 @@ namespace Hex.NumberTower
 /-- A one-generator presentation of a tower together with checked executable
 coordinate conversions in both directions. -/
 structure Flattening (T : NumberTower) where
+  /-- The canonical primitive element generating the whole tower. -/
   root : AlgebraicNumber
+  /-- Rewrite tower coordinates in the primitive presentation. -/
   toPrimitive : Elem T → QAdjoin root.p root.x
+  /-- Evaluate primitive coordinates back to a tower element. -/
   fromPrimitive : QAdjoin root.p root.x → Elem T
 
 /-- The finite combined bound for primitive-element and coordinate-recovery
@@ -42,15 +45,23 @@ namespace Flatten
 /-- One exact absolute generator and its mixed-radix coordinate in the final
 tower. -/
 structure Generator (T : NumberTower) where
+  /-- The generator's relative degree at its level. -/
   degree : Nat
+  /-- The exactified canonical value of the generator. -/
   root : AlgebraicNumber
+  /-- The generator's mixed-radix coordinate in the final tower. -/
   value : Elem T
 
 /-- A primitive generator accumulated through the lower part of the tower. -/
 structure Candidate (T : NumberTower) where
+  /-- The mixed-radix dimension generated so far. -/
   dimension : Nat
+  /-- The canonical primitive element accumulated so far. -/
   root : AlgebraicNumber
+  /-- The accumulated primitive element as a tower coordinate. -/
   value : Elem T
+  /-- Each combined generator's coordinate in the accumulated
+  presentation. -/
   coordinates : Array (QAdjoin root.p root.x)
 
 /-- Standard coordinate vector of length `dimension`. -/
@@ -178,9 +189,13 @@ def recoverPair? (theta alpha gamma : AlgebraicNumber) (shift : Int) :
 /-- A full-degree primitive candidate together with its recovered old and new
 generator coordinates. -/
 structure Recovered where
+  /-- The signed shift producing the accepted candidate. -/
   shift : Int
+  /-- The accepted full-degree primitive candidate. -/
   root : AlgebraicNumber
+  /-- The prior generator's coordinate in the candidate presentation. -/
   thetaCoordinate : QAdjoin root.p root.x
+  /-- The new generator's coordinate in the candidate presentation. -/
   alphaCoordinate : QAdjoin root.p root.x
 
 /-- Search a prescribed shift suffix, rejecting degree collisions and any
@@ -266,8 +281,12 @@ def basisImages {T : NumberTower} {p : ZPoly} {x : SimpleRoot p}
 @[expose]
 def toPrimitiveWith {T : NumberTower} {p : ZPoly} {x : SimpleRoot p}
     (images : Array (QAdjoin p x)) (a : Elem T) : QAdjoin p x :=
-  (List.range T.dim).map
-    (fun i => (coeffs a).getD i 0 • images.getD i 0) |>.sum
+  (List.range T.dim).foldl
+    (fun value i =>
+      let coefficient := (coeffs a).getD i 0
+      if coefficient = 0 then value
+      else value + coefficient • images.getD i 0)
+    0
 
 /-- Evaluate a reduced primitive coordinate polynomial at its tower element. -/
 @[expose]

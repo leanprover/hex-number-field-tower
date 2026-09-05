@@ -40,6 +40,7 @@ instance : Neg (Elem T)
 instance : Mul (Elem T)
 instance : Inv (Elem T)
 instance : Div (Elem T)
+instance : SMul Rat (Elem T)
 
 def dim (T : NumberTower) : Nat
 def coeffs (a : Elem T) : Array Rat
@@ -61,7 +62,9 @@ in the mixed-radix basis
 This flattened representation avoids a runtime-dependent Lean carrier while the
 index `Elem T` still supplies the per-tower arithmetic operations required by
 `DensePoly` gcd and resultant algorithms. Coordinate equality is exact within a
-fixed checked tower. Inversion is totalized by `0⁻¹ = 0`.
+fixed checked tower. Inversion is totalized by `0⁻¹ = 0`. Rational scalar
+multiplication acts coordinatewise; the Mathlib companion pins this executable
+action as the `qsmul` field of its law-bearing `Field (Elem T)` structure.
 
 Raw constructors are private. Only the smart constructors below may create a
 `NumberTower`. Each level stores a successful executable factorization check and
@@ -319,12 +322,41 @@ polynomial before returning. The accepted `γ` is already the canonical
 Sage is not an oracle. CI extends the existing single ubuntu job and does not add
 a matrix or a new workflow.
 
+### Phase-4 input families
+
+- `tower-coordinate-arithmetic`: bounded-height dense coordinates in checked
+  presentations. Multiplication varies the top degree over `ℚ(√2)`;
+  inversion and division use `ℚ(3^(1/m), √2)` so the fixed quadratic top
+  quotient performs genuine recursive arithmetic in the varying lower field.
+- `trager-factorization`: Selmer trinomials over `ℚ(√2)` for the inclusive
+  retry/gcd/replay route, plus irreducible Selmer inputs over
+  `ℚ(√2, √3)` for genuine recursive relative factorization.
+- `adjoin-extend`: fixed-embedding adjoining and identity adjoining, with a
+  separate checked rational-presentation family.
+- `split-flatten`: repeated quartic splitting, primitive-element flattening,
+  recovery/certification adversaries, and completed coordinate maps.
+
 ## Complexity and Phase 4 budgets
 
 Let `D = T.dim`, `n = deg f`, and let `H` bound coefficient height.
 
-- Coordinate addition costs `O(D)` rational operations. Schoolbook
-  multiplication and reduction cost `O(D²)` before later fast-arithmetic work.
+- Coordinate addition, subtraction, negation, and rational scalar action cost
+  `O(D)` bounded-height rational operations. `ofQAdjoin` constructs and walks
+  `O(D)` presentation data. Schoolbook multiplication and reduction cost
+  `O(D²)` before later fast-arithmetic work.
+- Inversion runs the monic one-sided extended gcd of the top-level coordinate
+  polynomial against the defining relation over the lower field
+  (`DensePoly.xgcdLeftMonic`), recursing into lower-field inversion once per
+  normalization. Every remainder is made monic before it divides, so each
+  recursive inversion acts on a normalized operand; the unnormalized chain
+  re-ran lower-field inversions on height-amplified quotient coefficients.
+  On the registered height-two family `ℚ(3^(1/n), √2)` the chain performs a
+  constant number of lower-field inversions and products, each `O(n²)`
+  coordinate operations at growing limb widths; the registered family model
+  is `n² log n`, with the logarithmic factor as the limb-growth proxy, and
+  the conservative worst case is `O(D³ log D)` rational operations. Division
+  is inversion followed by one `O(D²)` product by the inverse, whose
+  coordinate height is that of the inverse.
 - A Trager step at `K(α)/K` tries at most
   `choose(deg(mα) * n, 2) + 1` one-level resultants, then recursively factors one
   accepted norm of degree at most `deg(mα) * n` over `K`. The base case performs
@@ -334,12 +366,75 @@ Let `D = T.dim`, `n = deg f`, and let `H` bound coefficient height.
 - `flatten?` computes primitive-element eliminants of degree at most `D`, uses
   validated linear-gcd recovery while scanning full-degree candidates, and
   applies exact trace pairing once if the maximum-degree fallback is needed.
+  One dense flattening `toPrimitive` application costs `O(D²)` rational
+  operations; one `fromPrimitive` application costs `O(D³)` with the current
+  Horner/tower-arithmetic path. Applying `fromPrimitive` to all `D` basis
+  vectors gives the registered `O(D⁴)` family. One dense `toPrimitive` call
+  has bit cost set by the flattening's primitive-basis images, whose heights
+  are fixed by the accepted primitive-element shift rather than by the
+  dimension, so it has no one-parameter wall model in the dimension and is a
+  canonical mode-3 case below.
 
-No standalone wall-clock ceiling is pinned before the first complete compiled
-implementation. Phase 4 records component timings, then sets each ceiling from
-the measured reference-host ceiling under the repository benchmarking policy.
-Merge-facing conformance is restricted to tower dimension at most 8 and input
-degree at most 4 until those measurements exist.
+The fixed canonical cases for adjoining, identity adjoining, one- and
+two-level factorization, checked replay, splitting, flattening, division at
+the top rung of the recursive family, and one dense `toPrimitive` call use
+zero-grace whole-child ceilings derived from clean reference-host measurements
+plus stated margin. These budgets do not replace the contracts above; they are
+mode-3 regression ceilings for operations whose realised phase mixtures admit
+neither a tight family model nor a published bound covering the dominant
+executable phases.
+
+Negation has mode-1 evidence on dense bounded-height coordinate arrays at
+dimensions 128 through 448. The source-derived linear model covers one public
+negation plus structural result hashing; its exactly sized result constructor
+does not copy or normalize the coordinate array. `Elem.mk` remains private;
+the checked constructor is exposed only as `Internal.ofCoeffs`, and requires a
+proof that the supplied array has exactly the tower dimension.
+
+Inversion has mode-1 evidence on the recursive family. Division and dense
+`toPrimitive` are mode-3 surfaces: the inverse's coordinate height crosses a
+64-bit limb boundary inside the measured range, and the primitive images'
+heights are input-determined, so neither admits a one-parameter wall model;
+the headline report records the attempted schedules and their residuals. The
+fixed unit-basis registration and the dimension-four arithmetic
+registrations are hash anchors, not performance evidence.
+
+Merge-facing conformance remains restricted to tower dimension at most 8 and
+input degree at most 4; the degree-24 factorization case is scientific
+performance evidence, not a merge-facing conformance fixture.
+
+## External comparators
+
+**PARI/GP nffactor via cypari2** (https://pari.math.u-bordeaux.fr/, driven
+through the cypari2 binding, the same binding the conformance oracle uses) —
+**informational**, scoped to the `factor?` bench targets. `nffactor(nfinit f,
+t)` is the callable PARI unit surface for factoring a polynomial over a
+number field, the semantic task of `factor?` at one level. It is wired as a
+persistent-subprocess process call (`scripts/oracle/pari_bench_driver.py`,
+`Hex/BenchOracle/Pari.lean`) with per-rung fixed Lean/PARI registration
+pairs on shared deterministic Selmer trinomial inputs over `ℚ(√2)`, joined
+on the sorted factor degree/multiplicity multiset hash (factor coefficients
+live in each system's own field presentation and are not a shared
+observable; the degree/multiplicity multiset of a complete factorization
+is). PARI is a mature optimized C library running over `nfinit`'s absolute
+integral-basis presentation with maximal-order machinery, so the gap is
+structural; the ratio is recorded for orientation and does not gate Phase 4.
+
+Absence declarations, all with reason
+**no-comparable-surface-in-named-comparator**:
+
+- *Tower element arithmetic* (`Elem` add/sub/neg/mul/inv/div/smul): PARI's
+  number-field element operations (`nfelt*`) act on absolute integral-basis
+  coordinates after `nfinit`, not on relative mixed-radix tower coordinates
+  with a fixed embedding; nested `t_POLMOD` towers are not a supported
+  arithmetic surface for inversion. There is no callable PARI unit matching
+  arithmetic in this representation.
+- *Adjoining, splitting, flattening* (`adjoin?`, `split?`, `flatten?`):
+  PARI's `nfsplitting`, `polcompositum`, and `rnfequation` return abstract
+  defining polynomials up to isomorphism; they do not produce the
+  fixed-embedding root selection, coordinate maps, or validated tower level
+  that constitute these results, so they compute a different semantic task
+  than these units.
 
 ## File organisation
 
@@ -350,7 +445,8 @@ HexNumberFieldTower/
   RawEvaluation.lean  : fixed-embedding evaluation for raw coordinates
   Basic.lean          : NumberTower, Elem, Extension, smart constructors
   Arithmetic.lean     : field operations
-  Embed.lean          : compiled extension regressions (#guard fixtures)
+  Embed.lean          : compiled extension regressions (#guard fixtures; built
+                        by the non-public test target, not re-exported)
   Norm.lean           : recursive resultants
   FactorRaw.lean      : raw tower polynomial factorization
   Factor.lean         : Yun and Trager factorization, checked replay

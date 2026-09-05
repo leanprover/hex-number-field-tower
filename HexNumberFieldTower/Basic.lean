@@ -72,7 +72,10 @@ end NumberTower
 only API for extending towers. -/
 structure NumberTower where
   private mk ::
+  /-- The extension levels, stored top-first. -/
   levels : Array NumberTower.Level
+  /-- Every level passed its structural, irreducibility, and fixed-embedding
+  checks at construction time. -/
   valid : NumberTower.LevelsValid levels.toList
 
 namespace NumberTower
@@ -158,7 +161,9 @@ def height (T : NumberTower) : Nat :=
 /-- Canonical mixed-radix rational coordinates in a fixed tower. -/
 structure Elem (T : NumberTower) where
   private mk ::
+  /-- The flattened mixed-radix rational coordinates. -/
   data : Array Rat
+  /-- The coordinate array has exactly the tower's dimension. -/
   size_eq : data.size = T.dim
 
 /-- Normalize an arbitrary coordinate array to the tower dimension by
@@ -181,10 +186,24 @@ array. -/
 def ofCoeffs (T : NumberTower) (coefficients : Array Rat) : Elem T :=
   .mk (normalizeCoeffs T coefficients) (by simp [normalizeCoeffs])
 
+/-- Construct an element from coordinates whose exact tower width is already
+known. Arithmetic kernels use this internal boundary to avoid copying a fresh
+fixed-width result through `normalizeCoeffs` a second time. -/
+def Internal.ofCoeffs (T : NumberTower) (coefficients : Array Rat)
+    (hsize : coefficients.size = T.dim) : Elem T :=
+  .mk coefficients hsize
+
 /-- Canonical flattened rational coordinates. -/
 @[expose]
 def coeffs {T : NumberTower} (a : Elem T) : Array Rat :=
   a.data
+
+/-- Exact-width construction exposes its supplied coordinates unchanged. -/
+@[simp]
+theorem Internal.coeffs_ofCoeffs (T : NumberTower) (coefficients : Array Rat)
+    (hsize : coefficients.size = T.dim) :
+    coeffs (Internal.ofCoeffs T coefficients hsize) = coefficients := by
+  rfl
 
 /-- Every element exposes exactly the tower's mixed-radix width. -/
 @[simp]
@@ -208,6 +227,10 @@ theorem Elem.ext {T : NumberTower} {a b : Elem T}
   cases h
   rfl
 
+/-- Equality is exact coordinate equality inside a fixed tower; the generated
+iff form of {name}`Hex.NumberTower.Elem.ext`. -/
+add_decl_doc Hex.NumberTower.Elem.ext_iff
+
 instance {T : NumberTower} : DecidableEq (Elem T) := fun a b =>
   match decEq (coeffs a).toList (coeffs b).toList with
   | isTrue h =>
@@ -227,9 +250,13 @@ theorem ofRat_eq_ofCoeffs (T : NumberTower) (q : Rat) :
 /-- A dependent extension result carries the canonical lower-field embedding,
 the new generator, and its selected absolute algebraic root. -/
 structure Extension (T : NumberTower) where
+  /-- The extended tower. -/
   tower : NumberTower
+  /-- The canonical embedding of the lower field. -/
   embed : Elem T → Elem tower
+  /-- The adjoined generator as an element of the extended tower. -/
   gen : Elem tower
+  /-- The absolute algebraic root selected for the generator. -/
   root : AlgebraicRoot
 
 /-- Primitive associate with positive leading coefficient. This leaves every
@@ -250,11 +277,11 @@ theorem positiveAssociate_primitive (p : ZPoly)
     simp at hpos
   have hdegree : p.degree?.getD 0 ≠ 0 := Nat.ne_of_gt checked.pos_degree
   have hirred := checked.is_true
-  rw [ZPoly.isIrreducible, if_neg hpne, if_neg hdegree] at hirred
+  rw [ZPoly.isIrreducible, ite_eq_right hpne, ite_eq_right hdegree] at hirred
   simp only [Bool.and_eq_true, decide_eq_true_eq] at hirred
   have hscalar : (ZPoly.factorize p).scalar.natAbs = 1 := by
     exact hirred.1.1
-  rw [factorize_scalar, if_neg hpne] at hscalar
+  rw [factorize_scalar, ite_eq_right hpne] at hscalar
   have hcontentAbs : (ZPoly.content p).natAbs = 1 := by
     by_cases hlead : p.leadingCoeff < 0
     · simpa [hlead] using hscalar
