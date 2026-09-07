@@ -84,6 +84,8 @@ structure Extension (T : NumberTower) where
   gen     : Elem tower
   root    : AlgebraicRoot
 
+instance : Inhabited (Extension T)   -- the identity extension of `T`
+
 def checkFactorization (f : Poly T) (scalar : Elem T)
     (factors : Array (Poly T × Nat)) : Bool
 
@@ -102,8 +104,8 @@ structure Splitting (T : NumberTower) (f : Poly T) where
 
 structure Flattening (T : NumberTower) where
   root          : AlgebraicNumber
-  toPrimitive   : Elem T → QAdjoin root.p root.x
-  fromPrimitive : QAdjoin root.p root.x → Elem T
+  toPrimitive   : Elem T → QAdjoin root
+  fromPrimitive : QAdjoin root → Elem T
 
 end Hex.NumberTower
 ```
@@ -121,7 +123,7 @@ coordinate arrays. The zero polynomial has scalar zero and an empty factor array
 namespace Hex.NumberTower
 
 /-- Build a one-level tower for the irreducible presentation `ℚ(x)`. -/
-def ofQAdjoin [ZPoly.CheckedIrreducible p]
+def ofPolyQuot [ZPoly.CheckedIrreducible p]
     (hsf : HasOnlySimpleRoots p)
     (rep : RefinedIsolation p) (h : SimpleRoot.mk rep = x) :
     Extension rat
@@ -130,10 +132,10 @@ def ofQAdjoin [ZPoly.CheckedIrreducible p]
 def adjoin? (T : NumberTower) (a : AlgebraicRoot) : Option (Extension T)
 
 /-- Complete irreducible factorization with multiplicity. -/
-def factor? (T : NumberTower) (f : Poly T) : Option (Factorization T f)
+def factor? {T : NumberTower} (f : Poly T) : Option (Factorization T f)
 
 /-- Construct an extension in which `f` splits into linear factors. -/
-def split? (T : NumberTower) (f : Poly T) : Option (Splitting T f)
+def split? {T : NumberTower} (f : Poly T) : Option (Splitting T f)
 
 /-- Replace the whole tower by one canonical primitive-element field. -/
 def flatten? (T : NumberTower) : Option (Flattening T)
@@ -141,7 +143,15 @@ def flatten? (T : NumberTower) : Option (Flattening T)
 end Hex.NumberTower
 ```
 
-`ofQAdjoin` takes squarefreeness explicitly because its returned extension
+An operation takes its tower implicitly when a later argument's type names
+it, so `factor? f` and `split? f` recover the field of definition from the
+polynomial, while `adjoin? T a`, `flatten? T`, `liftZPoly T p` and the
+constants keep it explicit because no other argument mentions it. `Elem` is a
+structure indexed by the tower, so the inference is by structure injectivity,
+not by unfolding coordinates. Dot notation on the tower is therefore not
+available for the implicit operations: write `factor? f`, not `T.factor? f`.
+
+`ofPolyQuot` takes squarefreeness explicitly because its returned extension
 stores an `AlgebraicRoot`. Although irreducibility implies squarefreeness in
 characteristic zero, that implication belongs to the Mathlib companion, while
 `HasOnlySimpleRoots p` is already decidable and can be supplied by a
@@ -168,7 +178,7 @@ isomorphic abstract extension but could choose the wrong conjugate.
 The computational layer enforces the invariant through constructor-produced
 certificates:
 
-- `ofQAdjoin` uses its supplied matching `RefinedIsolation`.
+- `ofPolyQuot` uses its supplied matching `RefinedIsolation`.
 - `adjoin?` selects the unique irreducible factor that vanishes at the requested
   `AlgebraicRoot` under the current embedding.
 - `split?` calls `adjoin?` for every new generator.
@@ -184,14 +194,18 @@ monic defining polynomial. Inversion uses extended gcd in the top polynomial
 quotient and recurses into the lower coefficient field. `rat` has dimension one
 and identifies `Elem rat` with `Rat`.
 
+Natural powers are repeated multiplication, integer powers add inversion,
+and `NatCast`, `IntCast` and `OfNat` instances embed integers through
+`ofRat`, so `a ^ 3 = 2` reads as it does for `PolyQuot`.
+
 The computational layer implements the quotient operations, including
 `inv 0 = 0`. The companion turns the checked factorization evidence into
 semantic irreducibility and proves the field laws, following the quotient-field
-pattern of `QAdjoin` and `hex-gfq-field`.
+pattern of `PolyQuot` and `hex-gfq-field`.
 
 ## Trager factorization
 
-`factor? T f` first separates content and runs Yun decomposition over `Elem T`.
+`factor? f` first separates content and runs Yun decomposition over `Elem T`.
 Each squarefree component is factored independently, and the Yun index is the
 output multiplicity. This rule is mandatory; factoring the whole input norm and
 recovering multiplicity afterward is not accepted.
@@ -210,14 +224,17 @@ For one squarefree component `g`:
    Enumerate exactly that many distinct shifts in the deterministic order
    `0, 1, -1, 2, -2, ...`.
 3. For each `c`, substitute `X - c * αₙ` and compute only the one-level norm
-   `Res_Y(mₙ(Y), g(X - cY))`, a polynomial over `K`.
+   `Res_Y(mₙ(Y), g(X - cY))`, a polynomial over `K`. The shifted
+   bivariate input is constructed by descending Horner evaluation.
 4. Accept the first shift whose one-level norm is squarefree over `K`. Among the
    `N` conjugate shifted roots, each unordered pair excludes at most one integer
    shift, so `tragerShiftCount` proves that the bounded search succeeds.
 5. Recursively call the same factorization algorithm on that norm over `K`.
 6. Embed each returned lower-tower factor into `Poly T`, take its gcd with the
    shifted component, undo the shift, normalize monically, and discard
-   constants.
+   constants. When the shifted component is monic and smaller than the lifted
+   factor, recovery uses monic remainder division for the first Euclidean
+   remainder and resumes the reference gcd chain with its remaining fuel.
 7. Verify that the recovered factors reconstruct the component and pass the
    tower factorization checker.
 
@@ -243,7 +260,7 @@ to the recovered tower element. Otherwise append one validated level.
 
 ## Splitting fields
 
-`split? T f` returns `Roots.all` for zero and a finite empty array for a nonzero
+`split? f` returns `Roots.all` for zero and a finite empty array for a nonzero
 constant, without extending the tower. For a nonconstant polynomial:
 
 1. Factor over the current tower.
@@ -341,7 +358,7 @@ a matrix or a new workflow.
 Let `D = T.dim`, `n = deg f`, and let `H` bound coefficient height.
 
 - Coordinate addition, subtraction, negation, and rational scalar action cost
-  `O(D)` bounded-height rational operations. `ofQAdjoin` constructs and walks
+  `O(D)` bounded-height rational operations. `ofPolyQuot` constructs and walks
   `O(D)` presentation data. Schoolbook multiplication and reduction cost
   `O(D²)` before later fast-arithmetic work.
 - Inversion runs the monic one-sided extended gcd of the top-level coordinate
@@ -454,7 +471,7 @@ HexNumberFieldTower/
   Flatten.lean        : primitive-element conversion
 ```
 
-`Extension` and `ofQAdjoin` live in `Basic.lean` beside the sealed types
+`Extension` and `ofPolyQuot` live in `Basic.lean` beside the sealed types
 whose invariants they establish; `Embed.lean` retains the compiled
 extension regressions exercising them.
 

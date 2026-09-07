@@ -7,8 +7,10 @@ Authors: Kim Morrison
 module
 
 public import HexNumberFieldTower.RawArithmetic
+public import HexBerlekampZassenhaus.RatSquarefree
 public import HexResultant
 public meta import HexNumberFieldTower.RawArithmetic
+public meta import HexBerlekampZassenhaus.RatSquarefree
 public meta import HexResultant
 
 public section
@@ -56,11 +58,8 @@ def shiftedOuter (level : Level) (lower : List Level)
   let negShift : Coeff lower := Coeff.ofData lower #[(-(c : Rat))]
   let xSubCY : DensePoly (DensePoly (Coeff lower)) :=
     DensePoly.ofCoeffs #[x, DensePoly.C negShift]
-  let start : DensePoly (DensePoly (Coeff lower)) ×
-      DensePoly (DensePoly (Coeff lower)) := (0, 1)
-  (f.foldl (fun state coefficient =>
-    (state.1 + liftCoefficient level lower coefficient * state.2,
-      state.2 * xSubCY)) start).1
+  f.foldr (fun coefficient value =>
+    liftCoefficient level lower coefficient + xSubCY * value) 0
 
 /-- One Trager norm step. Input coefficients are flattened over
 `level :: lower`; output coefficients are flattened over `lower`. -/
@@ -91,12 +90,18 @@ def derivative (lower : List Level) (f : DensePoly (Coeff lower)) :
 def monic (f : DensePoly (Coeff lower)) : DensePoly (Coeff lower) :=
   if f.isZero then 0 else DensePoly.scale f.leadingCoeff⁻¹ f
 
-/-- Executable squarefreeness test over a checked lower tower. -/
+/-- Executable squarefreeness test over a checked lower tower. The rational
+base uses the certified modular trial before exact gcd fallback. -/
 @[expose]
 def isSquarefree (lower : List Level) (f : Array (Array Rat)) : Bool :=
-  let p : DensePoly (Coeff lower) :=
-    DensePoly.ofCoeffs (f.map (Coeff.ofData lower))
-  !p.isZero && (DensePoly.gcd p (derivative lower p)).size ≤ 1
+  match lower with
+  -- This is Factor.toRatPoly, spelled out to avoid the downstream import.
+  -- The base case of the companion's isSquarefree_iff pins them definitionally.
+  | [] => ZPoly.ratSquarefree (DensePoly.ofCoeffs (f.map fun a => a.getD 0 0))
+  | _ :: _ =>
+    let p : DensePoly (Coeff lower) :=
+      DensePoly.ofCoeffs (f.map (Coeff.ofData lower))
+    !p.isZero && (DensePoly.gcd p (derivative lower p)).size ≤ 1
 
 /-- Number of deterministic Trager shifts required for a top degree `d` and
 component degree `m`. -/
