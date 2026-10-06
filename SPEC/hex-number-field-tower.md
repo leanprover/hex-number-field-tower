@@ -203,6 +203,86 @@ The computational layer implements the quotient operations, including
 semantic irreducibility and proves the field laws, following the quotient-field
 pattern of `PolyQuot` and `hex-gfq-field`.
 
+## Real sign and comparison
+
+The following additions implement the tower part of the
+[exact comparison contract](../../SPEC/Libraries/hex-real-algebraic.md#towers-and-arrays).
+They are specified work, not implemented order instances. A real tower means
+that every **selected absolute generator** is real. Its other embeddings may
+be complex. Provide a checked real-tower predicate from the generators' exact
+reality tests and prove `isReal_iff`; do not equate this with being a totally
+real number field. Real elements of a complex tower instead require their own
+reality witness for the fixed embedding.
+
+`NumberTower.sign` returns `-1`, `0` or `1`, and `NumberTower.compare x y`
+returns the ordering determined by `sign (x-y)`. Total entry points take the
+real-tower proof, or (for an individual sign) a checked element-reality proof;
+checked wrappers reject nonreal inputs. There is no unconditional order on
+`Elem T` for arbitrary `T`. Coordinate equality decides zero first, including
+expressions reduced to zero by the tower relations. No numerical zero test
+replaces that field invariant.
+
+For a nonzero element `x`, form the absolute norm polynomial of `S-x` by
+`Norm.iterated`, clearing rational denominators at the end by a positive
+integer. It is a nonzero polynomial `E(S)` of degree at most `T.dim`,
+annihilating the selected evaluation; repeated roots are allowed. This uses
+one bounded norm step per level, no factorization or primitive-element
+flattening. Set `B = E.evalLowerDenom`, which removes all zero roots and
+content before computing the reciprocal-Cauchy bound `|x| ≥ 1/B`.
+Require the new `signEliminant_spec` for this use of the existing norm code;
+a norm-factorization theorem alone is not the selected-value annihilation
+bridge.
+
+Evaluate mixed-radix coordinates recursively at the stored generators. At
+each node, use `Disambiguation.evalMajorant` with the child-coordinate
+magnitude bounds from `RawEvaluation.coordsMajorant` and that node's absolute
+generator polynomial. This gives a computable majorant `C_v ≥ 1`; rational
+leaves use `C_v=1`. Define the evaluator's precision parameter `k` to guarantee
+radius at most `C_v*2^-k`. Refine the node's generator to `k+1`, and evaluate
+each coefficient child `w` at `k + ceilLog2 C_w`, so every coefficient input
+ball has radius at most `2^-k`. Horner's majorant now applies at the parent.
+These shifts are necessary: recursively supplied coefficient errors are not
+all one unit without them. Rational leaves use exact rational-to-dyadic balls.
+Require `signBall_bound` by induction on levels, including sound membership.
+
+For root-node majorant `C`, evaluate on the finite schedule
+`0 .. P`, `P = evalDisambiguationLimit E C`. At most `P+1` evaluations occur;
+at the endpoint the radius is at most `1/(8B)`, so the real centre determines
+the nonzero sign. Earlier exit requires a strict real-interval gap from zero.
+A uniform input bound on generator target precision is
+`P + max_path (sum of ceilLog2 C_w along the path) + 1`; all paths and
+majorants are computed from the finite coordinate tree. Each refinement uses
+`fuelFor` with that generator's polynomial and current precision. Norm
+elimination is structural in the tower length, and evaluation is structural
+in the same length and each stored degree. Thus neither termination argument
+uses the desired sign. The empty tower reduces to rational sign.
+
+This nested ball evaluator and its bounds are new obligations. The existing
+`Evaluation.evalElem?`/`RawEvaluation.evalCoords?` materialize intermediate
+lazy algebraic roots via resultants; citing them alone does not supply a
+cheap recursive ball algorithm or its error bound. They supply the reference
+value `A_T(x)`: exactify the successful evaluation result. Their success and
+semantic bridges already exist in the tower companion. Require `sign_eq`:
+`orderOfSign (sign x) = (A_T(x)).realCompare 0`, and `compare_eq`:
+`compare x y = (A_T(x)).realCompare (A_T(y))`, under the stated reality
+hypotheses. Sign of a real difference supplies comparison inside a real tower.
+
+Provide `sign?_isSome` and `compare?_isSome` for valid real inputs; any total
+wrapper panic fallback is **unreachable-by-pipeline-invariant** by these
+named theorems. Checked nonreal input is rejection, not fallback zero/equality.
+A real element of a complex tower can obtain its reality witness through
+materialization and the exact algebraic reality test; charge that preparation
+separately. The sign bound then uses all chosen complex generator embeddings
+and still applies to the certified real result.
+
+Conformance and Phase-4 sign/compare families, python-flint and Z3 RCF
+comparisons, and any required ceilings are specified by the consumer contract. Include coordinate zero, rational and negative values,
+relations reducing to zero, close nonzero values, multiple choices of real
+generator embedding, and rejection of nonreal elements. Measure norm setup
+and recursive evaluation separately; do not hide materialization or flattening
+in a preconstructed-input timing. This adds no dependency on
+`hex-real-algebraic` to the tower library.
+
 ## Trager factorization
 
 `factor? f` first separates content and runs Yun decomposition over `Elem T`.
@@ -322,7 +402,8 @@ searches and root selection have input-computable finite bounds.
 For an accepted `γ = θ + cα`, first lift the minimal polynomials of `θ` and `α`
 into `ℚ(γ)[Y]` and take the gcd of `mα(Y)` with `mθ(γ - cY)`. A linear gcd gives
 coordinates for `α` and `θ = γ - cα`, which are validated against their
-canonical algebraic values. Direct scanning accepts only this fast path. For
+canonical algebraic values through `QAdjoin.recoverShift?`, shared with the
+common-field presentation. Direct scanning accepts only this fast path. For
 the maximum-degree fallback, failed fast recovery is followed by exact trace
 pairing in the proved-equal generated field. Substitute the prior generator
 coordinates through the recovered `θ`. These coordinate expressions define
@@ -402,30 +483,29 @@ Let `D = T.dim`, `n = deg f`, and let `H` bound coefficient height.
   has bit cost set by the flattening's primitive-basis images, whose heights
   are fixed by the accepted primitive-element shift rather than by the
   dimension, so it has no one-parameter wall model in the dimension and is a
-  canonical mode-3 case below.
+  canonical fixed case below.
 
 The fixed canonical cases for adjoining, identity adjoining, one- and
 two-level factorization, checked replay, splitting, flattening, division at
 the top rung of the recursive family, and one dense `toPrimitive` call use
 zero-grace whole-child ceilings derived from clean reference-host measurements
 plus stated margin. These budgets do not replace the contracts above; they are
-mode-3 regression ceilings for operations whose realised phase mixtures admit
-neither a tight family model nor a published bound covering the dominant
-executable phases.
+regression ceilings for operations whose realised phase mixtures admit neither
+a tight family model nor a published bound covering the dominant executable
+phases, and they make no scaling claim.
 
-Negation has mode-1 evidence on dense bounded-height coordinate arrays at
+Negation has a two-sided declared model on dense bounded-height coordinate arrays at
 dimensions 128 through 448. The source-derived linear model covers one public
 negation plus structural result hashing; its exactly sized result constructor
 does not copy or normalize the coordinate array. `Elem.mk` remains private;
 the checked constructor is exposed only as `Internal.ofCoeffs`, and requires a
 proof that the supplied array has exactly the tower dimension.
 
-Inversion has mode-1 evidence on the recursive family. Division and dense
-`toPrimitive` are mode-3 surfaces: the inverse's coordinate height crosses a
-64-bit limb boundary inside the measured range, and the primitive images'
-heights are input-determined, so neither admits a one-parameter wall model;
-the headline report records the attempted schedules and their residuals. The
-fixed unit-basis registration and the dimension-four arithmetic
+Inversion has a two-sided declared model on the recursive family. Division
+and dense `toPrimitive` have fixed registrations only: the inverse's
+coordinate height crosses a 64-bit limb boundary inside the measured range,
+and the primitive images' heights are input-determined, so neither admits a
+one-parameter wall model. The fixed unit-basis registration and the dimension-four arithmetic
 registrations are hash anchors, not performance evidence.
 
 Merge-facing conformance remains restricted to tower dimension at most 8 and
@@ -435,8 +515,8 @@ performance evidence, not a merge-facing conformance fixture.
 ## External comparators
 
 **PARI/GP nffactor via cypari2** (https://pari.math.u-bordeaux.fr/, driven
-through the cypari2 binding, the same binding the conformance oracle uses) —
-**informational**, scoped to the `factor?` bench targets. `nffactor(nfinit f,
+through the cypari2 binding, the same binding the conformance oracle uses),
+scoped to the `factor?` bench targets. `nffactor(nfinit f,
 t)` is the callable PARI unit surface for factoring a polynomial over a
 number field, the semantic task of `factor?` at one level. It is wired as a
 persistent-subprocess process call (`scripts/oracle/pari_bench_driver.py`,
@@ -447,10 +527,9 @@ live in each system's own field presentation and are not a shared
 observable; the degree/multiplicity multiset of a complete factorization
 is). PARI is a mature optimized C library running over `nfinit`'s absolute
 integral-basis presentation with maximal-order machinery, so the gap is
-structural; the ratio is recorded for orientation and does not gate Phase 4.
+structural; the ratio is recorded for orientation only.
 
-Absence declarations, all with reason
-**no-comparable-surface-in-named-comparator**:
+PARI exposes no comparable callable unit for the other surfaces:
 
 - *Tower element arithmetic* (`Elem` add/sub/neg/mul/inv/div/smul): PARI's
   number-field element operations (`nfelt*`) act on absolute integral-basis
