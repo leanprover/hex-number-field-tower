@@ -9,17 +9,17 @@ leanOptions = [
 [[require]]
 name = "HexBerlekampZassenhaus"
 git = "https://github.com/leanprover/hex-berlekamp-zassenhaus.git"
-rev = "v0.7.0"
+rev = "v0.8.0"
 
 [[require]]
 name = "HexResultant"
 git = "https://github.com/leanprover/hex-resultant.git"
-rev = "v0.7.0"
+rev = "v0.8.0"
 
 [[require]]
 name = "HexNumberField"
 git = "https://github.com/leanprover/hex-number-field.git"
-rev = "v0.7.0"
+rev = "v0.8.0"
 
 [[lean_lib]]
 name = "HexNumberFieldTower"
